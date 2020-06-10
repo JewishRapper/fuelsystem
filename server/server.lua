@@ -1,70 +1,5 @@
  local fuelSystem = class("fuelSystem", vRP.Extension)
 
-local function menu_chest_gas_put_from_trailer(self)
-    local function m_put_gas_from_trailer(menu, _table)
-        local user = menu.user
-
-        local nuser
-        local nplayer = vRP.EXT.Base.remote.getNearestPlayer(user.source,10)
-        if nplayer then nuser = vRP.users_by_source[nplayer] end
-
-        if nuser then
-            vRP.EXT.Base.remote._notify(user.source,lang.vehicle.asktrunk.asked())
-            if nuser:request(lang.vehicle.asktrunk.request(),15) then -- request accepted, open trunk
-                local model = self.remote.getNearestOwnedVehicle(nuser.source,7)
-                if model then
-                    local chestid = vRP.EXT.Garage.getVehicleChestId(nuser.cid, model)
-                    local max_weight = vRP.EXT.Garage.cfg.vehicle_chest_weights[model] or self.cfg.default_vehicle_chest_weight
-
-                    -- open chest
-                    local cb_out = function(chestid, fullid, amount)
-                        local citem = vRP.EXT.Inventory:computeItem(fullid)
-                        if citem then
-                            vRP.EXT.Base.remote._notify(nuser.source,lang.inventory.give.given({citem.name,amount}))
-                        end
-                    end
-
-                    local cb_in = function(chest_id, fullid, amount)
-                        local citem = vRP.EXT.Inventory:computeItem(fullid)
-                        if citem then
-                            vRP.EXT.Base.remote._notify(nuser.source,lang.inventory.give.received({citem.name,amount}))
-                        end
-                    end
-
-                    vRP.EXT.Garage.remote._vc_openDoor(nuser.source, model, 5)
-                    local smenu = user:openChest(chestid, max_weight, function()
-                        vRP.EXT.Garage.remote._vc_closeDoor(nuser.source, model, 5)
-                    end,cb_in,cb_out)
-
-                    local running = true
-                    smenu:listen("remove", function(menu)
-                        running = false
-                    end)
-
-                    -- task: close menu if not next to the vehicle
-                    Citizen.CreateThread(function()
-                        while running do
-                            Citizen.Wait(8000)
-                            local check_model = self.remote.getNearestOwnedVehicle(user.source, 7)
-                            if model ~= check_model then
-                                user:closeMenu(menu)
-                            end
-                        end
-                    end)
-                else
-                    vRP.EXT.Base.remote._notify(user.source,lang.vehicle.no_owned_near())
-                    vRP.EXT.Base.remote._notify(nuser.source,lang.vehicle.no_owned_near())
-                end
-            else
-                vRP.EXT.Base.remote._notify(user.source,lang.common.request_refused())
-            end
-        else
-            vRP.EXT.Base.remote._notify(user.source,lang.common.no_player_near())
-        end
-
-    end
-end
-
 local function menu_chest_gas_put(self)
     local function m_put_gas(menu, _table)
         local user = menu.user
@@ -223,13 +158,7 @@ local function menu_gas_station(self)
             menu.user:closeMenu(smenu)
         end)
     end
-
-    local function m_put_gas_from_trailer(menu)
-        local smenu = menu.user:openMenu("gas.chest.put_from_trailer", menu.data) -- pass menu chest data
-        menu:listen("remove", function(menu)
-            menu.user:closeMenu(smenu)
-        end)
-    end
+ 
     vRP.EXT.GUI:registerMenuBuilder("gas.chest", function(menu)
         menu.title = "Склад Заправки"
         menu.css.header_color="rgba(0,255,125,0.75)"
@@ -237,7 +166,6 @@ local function menu_gas_station(self)
         menu:addOption("Забрать деньги", m_take_money_gas, "Забрать выручку")
         menu:addOption("Взять со склада", m_take_gas, "Забрать бензин со склада")
         menu:addOption("Положить на склад", m_put_gas, "Выставить бензин на продажу")
-        menu:addOption("Положить на склад", m_put_gas_from_trailer, "Выставить бензин на продажу из трейлера")
     end)
 end
 
