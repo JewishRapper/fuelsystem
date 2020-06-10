@@ -1,11 +1,76 @@
-local fuelSystem = class("fuelSystem", vRP.Extension)
+ local fuelSystem = class("fuelSystem", vRP.Extension)
+
+local function menu_chest_gas_put_from_trailer(self)
+    local function m_put_gas_from_trailer(menu, _table)
+        local user = menu.user
+
+        local nuser
+        local nplayer = vRP.EXT.Base.remote.getNearestPlayer(user.source,10)
+        if nplayer then nuser = vRP.users_by_source[nplayer] end
+
+        if nuser then
+            vRP.EXT.Base.remote._notify(user.source,lang.vehicle.asktrunk.asked())
+            if nuser:request(lang.vehicle.asktrunk.request(),15) then -- request accepted, open trunk
+                local model = self.remote.getNearestOwnedVehicle(nuser.source,7)
+                if model then
+                    local chestid = vRP.EXT.Garage.getVehicleChestId(nuser.cid, model)
+                    local max_weight = vRP.EXT.Garage.cfg.vehicle_chest_weights[model] or self.cfg.default_vehicle_chest_weight
+
+                    -- open chest
+                    local cb_out = function(chestid, fullid, amount)
+                        local citem = vRP.EXT.Inventory:computeItem(fullid)
+                        if citem then
+                            vRP.EXT.Base.remote._notify(nuser.source,lang.inventory.give.given({citem.name,amount}))
+                        end
+                    end
+
+                    local cb_in = function(chest_id, fullid, amount)
+                        local citem = vRP.EXT.Inventory:computeItem(fullid)
+                        if citem then
+                            vRP.EXT.Base.remote._notify(nuser.source,lang.inventory.give.received({citem.name,amount}))
+                        end
+                    end
+
+                    vRP.EXT.Garage.remote._vc_openDoor(nuser.source, model, 5)
+                    local smenu = user:openChest(chestid, max_weight, function()
+                        vRP.EXT.Garage.remote._vc_closeDoor(nuser.source, model, 5)
+                    end,cb_in,cb_out)
+
+                    local running = true
+                    smenu:listen("remove", function(menu)
+                        running = false
+                    end)
+
+                    -- task: close menu if not next to the vehicle
+                    Citizen.CreateThread(function()
+                        while running do
+                            Citizen.Wait(8000)
+                            local check_model = self.remote.getNearestOwnedVehicle(user.source, 7)
+                            if model ~= check_model then
+                                user:closeMenu(menu)
+                            end
+                        end
+                    end)
+                else
+                    vRP.EXT.Base.remote._notify(user.source,lang.vehicle.no_owned_near())
+                    vRP.EXT.Base.remote._notify(nuser.source,lang.vehicle.no_owned_near())
+                end
+            else
+                vRP.EXT.Base.remote._notify(user.source,lang.common.request_refused())
+            end
+        else
+            vRP.EXT.Base.remote._notify(user.source,lang.common.no_player_near())
+        end
+
+    end
+end
 
 local function menu_chest_gas_put(self)
     local function m_put_gas(menu, _table)
         local user = menu.user
         local fullid = _table.fullid
         local citem = vRP.EXT.Inventory:computeItem(fullid)
-        local fuelAmount = parseInt(vRP.EXT.fuelSystemBase:getFuel(menu.data.id))
+        local fuelAmount = parseInt(self.gasStations[menu.data.id].fuel)
 
         if citem then
             local i_amount = user:getItemAmount(fullid)
@@ -28,9 +93,9 @@ local function menu_chest_gas_put(self)
                         if menu.data.cb_in then menu.data.cb_in(menu.data.id, fullid, amount) end
 
                         user:tryTakeItem(fullid, amount)
-                        vRP.EXT.fuelSystemBase:setFuel(_table.id, fuelAmount)
-                        vRP.EXT.fuelSystemBase:setPrice(_table.id, price)
-                        user:closeMenu()
+                        self.gasStations[_table.id].fuel = fuelAmount
+                        self.gasStations[_table.id].price =  price
+                        user:actualizeMenu()
                     else
                         vRP.EXT.Base.remote._notify(user.source,lang.inventory.chest.full())
                     end
@@ -67,14 +132,14 @@ end
 local function menu_chest_gas_take(self)
     local function m_take_gas(menu, table)
         local user = menu.user
-        local i_amount = table.amount or 0
+        local i_amount = self.gasStations[table.id].fuel
         local amount = parseInt(user:prompt(lang.inventory.chest.take.prompt({i_amount}), ""))
         local weight = vRP.EXT.Inventory:computeItem(table.item).weight*amount
         if amount >= 0 and amount <= i_amount and weight < (user:getInventoryMaxWeight() - user:getInventoryWeight()) then
             user:tryGiveItem(table.item, amount)
             user:closeMenu()
 
-            vRP.EXT.fuelSystemBase.setFuel(self, table.id, i_amount - amount)
+            self.gasStations[table.id].fuel = i_amount - amount
 
         else
             vRP.EXT.Base.remote._notify(user.source,lang.common.invalid_value())
@@ -110,11 +175,11 @@ local function menu_chest_gas_take_money(self)
             user:tryGiveItem(table.item, amount)
             user:closeMenu()
             if table.item == "money" then
-                local cents = parseInt(vRP.EXT.fuelSystemBase:getMoney(menu.data.id)%1*100)
-                vRP.EXT.fuelSystemBase.setMoney(self, table.id,(i_amount - amount).."."..cents)
+                local cents = parseInt((self.gasStations[table.id]["money"])%1*100)
+                self.gasStations[table.id]["money"] = tonumber((i_amount - amount).."."..cents)
             elseif table.item == "cents" then
-                local money = parseInt(vRP.EXT.fuelSystemBase:getMoney(table.id))
-                vRP.EXT.fuelSystemBase.setMoney(self, table.id, tonumber(money.."."..(i_amount - amount)))
+                local money = self.gasStations[table.id]["money"]
+                self.gasStations[table.id]["money"] = tonumber(money.."."..(i_amount - amount))
             end
         else
             vRP.EXT.Base.remote._notify(user.source,lang.common.invalid_value())
@@ -125,8 +190,8 @@ local function menu_chest_gas_take_money(self)
         menu.title = "Забрать выручку"
         menu.css.header_color = "rgba(0,255,125,0.75)"
         local items = {
-            ["money"] = parseInt(vRP.EXT.fuelSystemBase:getMoney(menu.data.id)),
-            ["cents"] = parseInt(vRP.EXT.fuelSystemBase:getMoney(menu.data.id)%1*100)
+            ["money"] = parseInt(menu.data.money),
+            ["cents"] = parseInt((menu.data.money)%1*100)
         }
         -- add chest items
         for k, v in pairs(items) do
@@ -158,13 +223,21 @@ local function menu_gas_station(self)
             menu.user:closeMenu(smenu)
         end)
     end
+
+    local function m_put_gas_from_trailer(menu)
+        local smenu = menu.user:openMenu("gas.chest.put_from_trailer", menu.data) -- pass menu chest data
+        menu:listen("remove", function(menu)
+            menu.user:closeMenu(smenu)
+        end)
+    end
     vRP.EXT.GUI:registerMenuBuilder("gas.chest", function(menu)
         menu.title = "Склад Заправки"
         menu.css.header_color="rgba(0,255,125,0.75)"
 
-        menu:addOption("Забрать деньги", m_take_money_gas)
-        menu:addOption("Взять со склада", m_take_gas)
-        menu:addOption("Положить на склад", m_put_gas)
+        menu:addOption("Забрать деньги", m_take_money_gas, "Забрать выручку")
+        menu:addOption("Взять со склада", m_take_gas, "Забрать бензин со склада")
+        menu:addOption("Положить на склад", m_put_gas, "Выставить бензин на продажу")
+        menu:addOption("Положить на склад", m_put_gas_from_trailer, "Выставить бензин на продажу из трейлера")
     end)
 end
 
@@ -178,43 +251,62 @@ end
 function fuelSystem:__construct()
     vRP.Extension.__construct(self)
     self.cfg = module("fuelsystem", "config")
+    self.updateInterval = 20
     menu_gas_station(self)
     menu_chest_gas_take_money(self)
     menu_chest_gas_take(self)
     menu_chest_gas_put(self)
+    menu_chest_gas_put_from_trailer(self)
+    self.gasStations = {}
+    for i = 1, #self.cfg.gasStations do
+        self.gasStations[i] = vRP.EXT.fuelSystemBase:getGasStations(i)
+    end
+
+    async(function()
+        while true do
+            Wait(self.updateInterval*1000)
+            for k,v in pairs(self.gasStations) do
+                vRP.EXT.fuelSystemBase:setGasStations(v.id,v.fuel,v.price,v.owner,v.money)
+            end
+        end
+    end)
 end
+
+
 
 function fuelSystem:openStationChest(id)
     local user = vRP.users_by_source[source]
-    if user.cid == vRP.EXT.fuelSystemBase:getOwner(id) then
-        local amount = vRP.EXT.fuelSystemBase:getFuel(id)
-        user:openMenu("gas.chest", {id = id, amount = amount})
+    if user.cid == self.gasStations[id]["owner"] then
+        local amount = self.gasStations[id]["fuel"]
+        local price = self.gasStations[id]["price"]
+        local money = self.gasStations[id]["money"]
+
+        user:openMenu("gas.chest", {id = id, amount = amount, price = price, money = money})
         self.remote._menuFlag(user.source, true)
     end
 end
 
 function fuelSystem:closeStationChest()
     local user = vRP.users_by_source[source]
-    if not user:getMenu() then
-        self.remote._menuFlag(user.source, false)
-    else
-        while user:getMenu() do
-            user:closeMenu()
-        end
-    end
+
+    user:closeMenu()
+    Wait(100)
+    user:closeMenu()
+    self.remote._menuFlag(user.source, false)
 end
 
 
 function fuelSystem:startFueling(id, fuel)
     local user = vRP.users_by_source[source]
-    local fuelStation = vRP.EXT.fuelSystemBase:getFuel(id)
-    local price = vRP.EXT.fuelSystemBase:getPrice(id)
-    local money = vRP.EXT.fuelSystemBase:getMoney(id)
+
+    local fuelStationFuel = self.gasStations[id]["fuel"]
+    local price = self.gasStations[id]["price"]
+    local money = self.gasStations[id]["money"]
     local maxFuel = self.cfg.maxFuelLevel - parseInt(fuel)
     local max
-    if maxFuel >= fuelStation then
-        max = parseInt(fuelStation)
-    elseif maxFuel <= fuelStation then
+    if maxFuel >= fuelStationFuel then
+        max = parseInt(fuelStationFuel)
+    elseif maxFuel <= fuelStationFuel then
         max = parseInt(maxFuel)
     end
     if max < 0 then
@@ -224,14 +316,13 @@ function fuelSystem:startFueling(id, fuel)
     if amount <= 0 or amount > max or not user:tryPayment(amount*price,true) then
         vRP.EXT.Base.remote._notify(user.source,"Неверное количество")
     else
-        --local percent = vRP.EXT.business:getPercentFuel()/100
-        local percent = 0
+        local percent = vRP.EXT.business:getPercentFuel()/100
         local tresMoney = vRP.EXT.business.getMoney()
         user:tryPayment(amount*price)
         self.remote._InitFueling(user.source,amount)
-        vRP.EXT.fuelSystemBase:setFuel( id, fuelStation-amount)
-        vRP.EXT.fuelSystemBase.setMoney(self, id, money + (amount*price - (amount*price*percent)))
-        --vRP.EXT.business:setMoney(tresMoney + (amount*price*percent))
+        self.gasStations[id]["fuel"] = fuelStationFuel-amount
+        self.gasStations[id]["money"] = money + (amount*price - (amount*price*percent))
+        vRP.EXT.business:setMoney(tresMoney + (amount*price*percent))
         vRP.EXT.Base.remote._notify(user.source,lang.money.paid({amount*price}))
         vRP.EXT.Base.remote._playAnim(user.source, false, {{"timetable@gardener@filling_can", "gar_ig_5_filling_can", 1}}, true)
         self.remote._refuelFlag(user.source, true)

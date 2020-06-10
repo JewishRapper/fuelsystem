@@ -19,6 +19,9 @@ function fuelSystem:__construct()
             if IsPedSittingInAnyVehicle(GetPlayerPed(-1)) then
                 vehicle = GetVehiclePedIsUsing(GetPlayerPed(-1));
                 local fuel = GetVehicleFuelLevel(vehicle);
+                if fuel > 100.0 then
+                    fuel = 100.0
+                end
                 local coords1 = GetEntityCoords(vehicle);
                 if not DecorExistOn(vehicle, "customFuel") then
                     DecorSetFloat(vehicle, "customFuel", fuel)
@@ -49,11 +52,11 @@ function fuelSystem:__construct()
                 for k,v in pairs(self.cfg.gasStations) do
                     if GetDistanceBetweenCoords(pedPos.x, pedPos.y, pedPos.z, v[4], v[5], v[6], true) <= 2.0 and not IsPedSittingInAnyVehicle(GetPlayerPed(-1)) then
                         self.closestStation = k
-                        DrawOnscreenText(0.01,0.1 , "Нажмите ~r~E~w~, чтобы открыть склад")
+                        vRP.EXT.GUI:DrawOnscreenText(0.01,0.1 , "Нажмите ~r~E~w~, чтобы открыть склад")
                         if IsControlJustReleased(0, 51) then
                             self.remote._openStationChest(self.closestStation)
                         end
-                        elseif GetDistanceBetweenCoords(pedPos.x, pedPos.y, pedPos.z, v[1], v[2], v[3], true) <= 100.0 then
+                        elseif GetDistanceBetweenCoords(pedPos.x, pedPos.y, pedPos.z, v[1], v[2], v[3], true) <= 50.0 then
                         self.closestStation = k
                     end
                 end
@@ -65,16 +68,13 @@ function fuelSystem:__construct()
         while true do
             if self.inGasStationMenu == true then
                 local pedPos = GetEntityCoords(PlayerPedId(), 0)
-                while self.inGasStationMenu == true do
-                    if GetDistanceBetweenCoords(pedPos.x, pedPos.y, pedPos.z, GetEntityCoords(PlayerPedId(), 0).x, GetEntityCoords(PlayerPedId(), 0).y, GetEntityCoords(PlayerPedId(), 0).z, 1 )  then
+                    if GetDistanceBetweenCoords(pedPos.x, pedPos.y, pedPos.z, self.cfg.gasStations[self.closestStation][4], self.cfg.gasStations[self.closestStation][5],  self.cfg.gasStations[self.closestStation][6], 1 ) >= 2.0 then
                         self.remote._closeStationChest()
                     end
-                    Citizen.Wait(100)
                 end
-            end
             Citizen.Wait(100)
-        end
-    end)
+            end
+        end)
 
     async(function()
         while true do
@@ -89,7 +89,7 @@ function fuelSystem:__construct()
                     local closestPump = GetClosestObjectOfType(pedCoords, 1.5, self.cfg.pumpModels[i],false,false)
                     if closestPump ~= nil and closestPump ~= 0 and not self.inRefuel then
                         local coords = GetEntityCoords(closestPump)
-                        DrawText3Ds(coords.x,coords.y, coords.z+1, "Нажмите ~r~E~w~, чтобы заправиться")
+                        vRP.EXT.GUI:DrawText3Ds(coords.x,coords.y, coords.z+1, "Нажмите ~r~E~w~, чтобы заправиться")
                         if IsControlJustReleased(0, 51) then
                             self.remote.startFueling(self.closestStation, GetVehicleFuelLevel(vehicle))
                         end
@@ -139,40 +139,11 @@ end
 
 fuelSystem.tunnel = {}
 
+fuelSystem.tunnel.menuFlag = fuelSystem.menuFlag
 fuelSystem.tunnel.refuelFlag = fuelSystem.refuelFlag
 fuelSystem.tunnel.InitFueling = fuelSystem.InitFueling
 fuelSystem.tunnel.setStateReady = fuelSystem.setStateReady
 fuelSystem.tunnel.shopFlag = fuelSystem.shopFlag
 
-
-function DrawOnscreenText(x,y , text)
-    SetTextFont(0)
-    SetTextProportional(1)
-    SetTextScale(0.0, 0.3)
-    SetTextColour(255, 255, 255, 255)
-    SetTextDropshadow(0, 0, 0, 0, 255)
-    SetTextEdge(1, 0, 0, 0, 255)
-    -- SetTextDropShadow()
-    SetTextOutline()
-    SetTextEntry("STRING")
-    AddTextComponentSubstringPlayerName(text)
-    EndTextCommandDisplayText(x, y)
-end
-
-function DrawText3Ds(x,y,z, text)
-    local onScreen,_x,_y=World3dToScreen2d(x,y,z)
-    local px,py,pz=table.unpack(GetGameplayCamCoords())
-
-    SetTextScale(0.35, 0.35)
-    SetTextFont(4)
-    SetTextProportional(1)
-    SetTextColour(255, 255, 255, 215)
-    SetTextEntry("STRING")
-    SetTextCentre(1)
-    AddTextComponentString(text)
-    DrawText(_x,_y)
-    local factor = (string.len(text)) / 370
-    DrawRect(_x,_y+0.0125, 0.015+ factor, 0.03, 41, 11, 41, 68)
-end
 
 vRP:registerExtension(fuelSystem)

@@ -59,6 +59,12 @@ vRP:prepare("getGasStations","SELECT * FROM gasstations WHERE `id` = @id")
 end
 
 
+function fuelSystemBase:getGasStations(id)
+    return vRP:query("getGasStations", {
+        id = id
+    })[1]
+end
+
 function fuelSystemBase:getFuel(id)
     return vRP:query("getGasStations", {
         id = id
@@ -125,8 +131,21 @@ function fuelSystemBase:setMoney(id, money)
     })
 end
 
+function fuelSystemBase:setGasStations(id, fuel,price,owner,money)
+    vRP:prepare("setGasStations","REPLACE INTO gasstations (`id`, `fuel`, `price`, `owner`,  `money`) VALUES(@id, @fuel, @price, @owner,  @money)")
+    vRP:execute("setGasStations", {
+        id = id,
+        fuel = fuel,
+        price = price,
+        owner = owner,
+        money = money,
+    })
+end
+
 fuelSystemBase.tunnel = {}
 
+fuelSystemBase.tunnel.getGasStations = fuelSystemBase.getGasStations
+fuelSystemBase.tunnel.setGasStations = fuelSystemBase.setGasStations
 fuelSystemBase.tunnel.getFuel = fuelSystemBase.getFuel
 fuelSystemBase.tunnel.getPrice = fuelSystemBase.getPrice
 fuelSystemBase.tunnel.getOwner = fuelSystemBase.getOwner
